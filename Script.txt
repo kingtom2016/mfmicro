@@ -1,0 +1,52 @@
+##QC
+sample
+fastp -i sample.R1.raw.fastq.gz -I  sample.R2.raw.fastq.gz \
+-o tmp_fastq/sample/sample.R_1.fastq.gz -O tmp_fastq/sample/sample.R_2.fastq.gz \
+-h tmp_fastq/sample/fastp.html -j tmp_fastq/sample/fastp.json   --thread=12 --length_required 50
+bowtie2 -p 36 -x host_db_my -1 tmp_fastq/sample/sample.R_1.fastq.gz  -2 tmp_fastq/sample/sample.R_2.fastq.gz --un-conc-gz sample > tmp.sam
+mkdir  clean_fastq/sample
+mv sample.1   clean_fastq/sample/sample.R_1.fastq.gz
+mv sample.2   clean_fastq/sample/sample.R_2.fastq.gz
+
+
+##Assembly for each sample
+megahit -1 sample.R_1.fastq.gz -2 sample.R_2.fastq.gz --min-contig-len 500 -m 0.8 -o ASSEMBLY_megahit/  -t 36   --presets  meta-large --tmp-dir /tmp ##本地wsl运行最好/tmp --k-min 31 --k-max 141  --k-step 10
+
+##Unique gene set
+prodigal -i contigs_all.fasta -a contigs_all_orf.faa -d  contigs_all_orf.fa -o contigs_all_orf.gff -f gff  -p meta 
+mmseqs easy-linclust contigs_all_orf.fa -e 0.001 --min-seq-id 0.95 -c 0.80  unique_gene tmp --threads 24
+grep "^>" unique_gene.faa  | sed 's/>//g' > unique_gene_head.txt
+
+#Abundance
+bwa index unique_gene.fasta 
+bwa mem  -t 20  unique_gene.fasta sample.R_1.fastq.gz   sample.R_2.fastq.gz   | samtools sort -m 1G  -@ 8 > abundance/sample.sort.bam 
+coverm contig  --min-read-percent-identity 0.95 --min-read-aligned-percent 0.75 --trim-max 90 --trim-min 10 --bam-files abundance/sample.sort.bam -m tpm -t 36 --output-file abundance/sample.abundance.tsv 
+
+##Functional annotation
+emapper.py  -i  unique_gene.faa -o test  --data_dir  database/eggnog_data/data --no_annot --no_file_comments --report_no_hits --override -m diamond  --cpu 24
+emapper.py --annotate_hits_table test.emapper.seed_orthologs -o emapper_annot.txt --data_dir  database/eggnog_data/data -m no_search --no_file_comments --override  --cpu 28  --dbmem
+
+##Taxonomic annovation
+mmseqs easy-taxonomy contigs_all.fasta  database/mmseqs2/database/UniRef90 contigs_tax  tmp  --threads 28 --lca-mode 4 --tax-lineage 0 --lca-ranks kingdom,phylum  -s 4  --remove-tmp-files #taxonomy
+
+##ARG
+diamond  blastp --query unique_gene.faa --db database/resistome/ARG_CARD/ARG_SARG/sarg_pro_db.dmnd --out  resistance/unique_gene.faa.diamond.blast -k 1 -p 20   -e 1e-5  --id 90   --quiet 
+diamond  blastp --query unique_gene.faa --db database/resistome/MGE/mobileogdb/mobileogdb.dmnd --out  mobile/unique_gene.faa.diamond.blast -k 1 -p 20 -e 1e-5 --id 80 --query-cover 80 --quiet
+
+##construct unique mag set from several binning tools
+mkdir DAS_tools
+Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/metadecoder_bins/ -e fa > DAS_tools/metadecoder.contigs2bin.tsv
+Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/metabat2_bins/ -e fa > DAS_tools/metabat2.contigs2bin.tsv
+Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/semibin_bins/ -e fa > DAS_tools/semibin.contigs2bin.tsv
+Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/vamb_bins/ -e fa > DAS_tools/vamb.contigs2bin.tsv
+DAS_Tool -i \
+DAS_tools/metadecoder.contigs2bin.tsv,\
+DAS_tools/metabat2.contigs2bin.tsv,\
+DAS_tools/semibin.contigs2bin.tsv,\
+DAS_tools/vamb.contigs2bin.tsv \
+-l binny,metadecoder,metabat2,semibin,vamb \
+-c ASSEMBLY/final_assembly.fasta \
+-o DAS_tools/DASToolRun \
+--write_bin_evals \
+--threads 20 \
+--score_threshold 0.3 
