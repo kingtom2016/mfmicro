@@ -8,7 +8,6 @@ mkdir  clean_fastq/sample
 mv sample.1   clean_fastq/sample/sample.R_1.fastq.gz
 mv sample.2   clean_fastq/sample/sample.R_2.fastq.gz
 
-
 ##Assembly for each sample
 megahit -1 sample.R_1.fastq.gz -2 sample.R_2.fastq.gz --min-contig-len 500 -m 0.8 -o ASSEMBLY_megahit/  -t 36   --presets  meta-large --tmp-dir /tmp  --k-min 31 --k-max 141  --k-step 10
 
@@ -33,20 +32,36 @@ mmseqs easy-taxonomy contigs_all.fasta  database/mmseqs2/database/UniRef90 conti
 diamond  blastp --query unique_gene.faa --db database/resistome/ARG_CARD/ARG_SARG/sarg_pro_db.dmnd --out  resistance/unique_gene.faa.diamond.blast -k 1 -p 20   -e 1e-5  --id 90   --quiet 
 diamond  blastp --query unique_gene.faa --db database/resistome/MGE/mobileogdb/mobileogdb.dmnd --out  mobile/unique_gene.faa.diamond.blast -k 1 -p 20 -e 1e-5 --id 80 --query-cover 80 --quiet
 
-##construct unique mag set from several binning tools
+
+##aggragate mag set from bins generated from several binning tools
 mkdir DAS_tools
+Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/binny_bins/ -e fa > DAS_tools/binny.contigs2bin.tsv
 Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/metadecoder_bins/ -e fa > DAS_tools/metadecoder.contigs2bin.tsv
 Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/metabat2_bins/ -e fa > DAS_tools/metabat2.contigs2bin.tsv
 Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/semibin_bins/ -e fa > DAS_tools/semibin.contigs2bin.tsv
-Fasta_to_Contig2Bin.sh -i INITIAL_BINNING/vamb_bins/ -e fa > DAS_tools/vamb.contigs2bin.tsv
 DAS_Tool -i \
+DAS_tools/binny.contigs2bin.tsv,\
 DAS_tools/metadecoder.contigs2bin.tsv,\
 DAS_tools/metabat2.contigs2bin.tsv,\
-DAS_tools/semibin.contigs2bin.tsv,\
-DAS_tools/vamb.contigs2bin.tsv \
--l binny,metadecoder,metabat2,semibin,vamb \
+DAS_tools/semibin.contigs2bin.tsv \
+-l binny,metadecoder,metabat2,semibin \
 -c ASSEMBLY/final_assembly.fasta \
 -o DAS_tools/DASToolRun \
 --write_bin_evals \
---threads 20 \
---score_threshold 0.3 
+--threads 16 \
+--score_threshold 0.3
+
+##extract bins based on DAStools output
+export MAGPURIFYDB=/mnt/g/stone_meta/database/MAGpurify-db-v1.0
+ls ./bins/  -l | grep ^[^d] | awk '{print $9}' | xargs -n 1 basename | parallel -j 12 "
+ magpurify phylo-markers bins/{} bins_pure_files/{}  --threads 2
+ magpurify clade-markers bins/{} bins_pure_files/{}  --threads 2
+ magpurify tetra-freq bins/{} bins_pure_files/{}
+ magpurify gc-content bins/{} bins_pure_files/{} 
+ magpurify known-contam bins/{} bins_pure_files/{}  --threads 2
+ magpurify clean-bin bins/{} bins_pure_files/{} pure_bins/{}  
+"
+
+##dereplication into unique MAG at approximately species level, sepcies-level genome bins (SGBs)
+dRep dereplicate unique_MAG -g MAG/*/pure_bins/*.fa  -p 28  -comp 50 -con 10  -sa 0.95
+
