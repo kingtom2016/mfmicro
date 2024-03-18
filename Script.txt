@@ -10,7 +10,7 @@ mv sample.2   clean_fastq/sample/sample.R_2.fastq.gz
 
 
 ##Assembly for each sample
-megahit -1 sample.R_1.fastq.gz -2 sample.R_2.fastq.gz --min-contig-len 500 -m 0.8 -o ASSEMBLY_megahit/  -t 36   --presets  meta-large --tmp-dir /tmp ##本地wsl运行最好/tmp --k-min 31 --k-max 141  --k-step 10
+megahit -1 sample.R_1.fastq.gz -2 sample.R_2.fastq.gz --min-contig-len 500 -m 0.8 -o ASSEMBLY_megahit/  -t 36   --presets  meta-large --tmp-dir /tmp  --k-min 31 --k-max 141  --k-step 10
 
 ##Unique gene set
 prodigal -i contigs_all.fasta -a contigs_all_orf.faa -d  contigs_all_orf.fa -o contigs_all_orf.gff -f gff  -p meta 
